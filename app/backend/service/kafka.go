@@ -41,6 +41,7 @@ import (
 	"github.com/go-resty/resty/v2"
 	"github.com/google/uuid"
 	"github.com/twmb/franz-go/pkg/kmsg"
+	"github.com/wailsapp/wails/v2/pkg/runtime"
 	"golang.org/x/crypto/ssh"
 
 	"github.com/jcmturner/gokrb5/v8/client"
@@ -65,11 +66,21 @@ type Service struct {
 	config           []kgo.Opt
 	kac              *kadm.Client
 	client           *kgo.Client
-	consumer         []any // []any{group, topic, _client}
+	consumer         []any // []any{group, topic, isolationLevel, _client}
 	mutex            sync.Mutex
 	topics           []any
 	groups           []any
 	sshTunnel        *sshTunnel // 新增：存储 SSH 隧道
+	// Streaming
+	appCtx       context.Context    // Wails 运行时 context，用于 EventsEmit
+	streamCancel context.CancelFunc // 取消流式消费的 goroutine
+	streamState  *StreamState       // 流式消费状态
+}
+
+type StreamState struct {
+	Running bool   `json:"running"`
+	Topic   string `json:"topic"`
+	Group   string `json:"group"`
 }
 
 func (k *Service) ptr(s string) *string {
@@ -80,9 +91,237 @@ func NewKafkaService() *Service {
 	return &Service{}
 }
 
+func (k *Service) Start(ctx context.Context) {
+	k.appCtx = ctx
+}
+
+func (k *Service) GetStreamState() *types.ResultResp {
+	result := &types.ResultResp{}
+	k.mutex.Lock()
+	defer k.mutex.Unlock()
+	if k.streamState == nil {
+		result.Result = map[string]any{
+			"running": false,
+			"topic":   "",
+			"group":   "",
+		}
+		return result
+	}
+	result.Result = map[string]any{
+		"running": k.streamState.Running,
+		"topic":   k.streamState.Topic,
+		"group":   k.streamState.Group,
+	}
+	return result
+}
+
+func (k *Service) StopStreamConsumer() *types.ResultResp {
+	result := &types.ResultResp{}
+
+	k.mutex.Lock()
+	cancel := k.streamCancel
+	k.streamCancel = nil
+	consumerClient := (*kgo.Client)(nil)
+	if k.consumer != nil && len(k.consumer) == 4 {
+		if c, ok := k.consumer[3].(*kgo.Client); ok {
+			consumerClient = c
+		}
+		k.consumer = nil
+	}
+	if k.streamState != nil {
+		k.streamState.Running = false
+	}
+	k.mutex.Unlock()
+
+	if cancel != nil {
+		cancel()
+	}
+	if consumerClient != nil {
+		consumerClient.Close()
+	}
+	return result
+}
+
+func (k *Service) StartStreamConsumer(topic string, group string, num int, timeout int, decompress string, isolationLevel string, isCommit bool, isLatest bool, startTimestamp int, decode string) *types.ResultResp {
+	result := &types.ResultResp{}
+
+	if k.kac == nil {
+		result.Err = common.PleaseSelectErr
+		return result
+	}
+
+	// 停止已有的流
+	if k.streamCancel != nil {
+		k.streamCancel()
+		k.streamCancel = nil
+	}
+
+	// 创建流 context
+	streamCtx, cancel := context.WithCancel(context.Background())
+	k.streamCancel = cancel
+
+	// 复用 consumer client 缓存逻辑
+	k.mutex.Lock()
+	var _client *kgo.Client
+	if k.consumer == nil || k.consumer[0] != group || k.consumer[1] != topic || k.consumer[2] != isolationLevel {
+		if k.consumer != nil && len(k.consumer) == 4 {
+			if c, ok := k.consumer[3].(*kgo.Client); ok {
+				c.Close()
+			}
+		}
+		conf := append(k.config,
+			kgo.ConsumeTopics(topic),
+			kgo.DisableAutoCommit(),
+		)
+		if strings.ToLower(isolationLevel) == "read_committed" {
+			conf = append(conf, kgo.FetchIsolationLevel(kgo.ReadCommitted()))
+		} else {
+			conf = append(conf, kgo.FetchIsolationLevel(kgo.ReadUncommitted()))
+		}
+		if group != "__kafka_king_auto_generate__" {
+			conf = append(conf, kgo.ConsumerGroup(group))
+		} else {
+			conf = append(conf, kgo.ConsumerGroup("__kafka_king__"+uuid.New().String()))
+		}
+		if startTimestamp != 0 {
+			conf = append(conf, kgo.ConsumeResetOffset(kgo.NewOffset().AfterMilli(int64(startTimestamp))))
+		} else if isLatest {
+			conf = append(conf, kgo.ConsumeResetOffset(kgo.NewOffset().AtEnd()))
+		} else {
+			conf = append(conf, kgo.ConsumeResetOffset(kgo.NewOffset().AtStart()))
+		}
+
+		cl, err := kgo.NewClient(conf...)
+		if err != nil {
+			k.mutex.Unlock()
+			k.streamCancel = nil
+			result.Err = "Consumer Error：" + err.Error()
+			return result
+		}
+		_client = cl
+		k.consumer = []any{group, topic, isolationLevel, _client}
+	} else {
+		_client = k.consumer[3].(*kgo.Client)
+	}
+	k.streamState = &StreamState{
+		Running: true,
+		Topic:   topic,
+		Group:   group,
+	}
+	k.mutex.Unlock()
+
+	// 启动 goroutine 循环 poll
+	appCtx := k.appCtx
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				log.Printf("stream consumer panic: %v", r)
+			}
+			k.mutex.Lock()
+			if k.streamState != nil {
+				k.streamState.Running = false
+			}
+			k.mutex.Unlock()
+			runtime.EventsEmit(appCtx, "consumer-end")
+		}()
+
+		for {
+			select {
+			case <-streamCtx.Done():
+				return
+			default:
+			}
+
+			ctx, cancel2 := context.WithTimeout(streamCtx, time.Duration(timeout)*time.Second)
+			fetches := _client.PollRecords(ctx, num)
+			cancel2()
+
+			if streamCtx.Err() != nil {
+				return
+			}
+
+			if fetches.IsClientClosed() {
+				runtime.EventsEmit(appCtx, "consumer-err", "Client Closed, Please Retry")
+				return
+			}
+
+			if errs := fetches.Errors(); len(errs) > 0 {
+				runtime.EventsEmit(appCtx, "consumer-err", fmt.Sprint(errs))
+			}
+
+			records := fetches.Records()
+			if len(records) > 0 {
+				res := make([]any, 0, len(records))
+				for _, v := range records {
+					if v == nil {
+						continue
+					}
+					var data []byte
+					var err error
+					switch decompress {
+					case "gzip":
+						data, err = compress.GzipDecompress(v.Value)
+					case "lz4":
+						data, err = compress.Lz4Decompress(v.Value)
+					case "zstd":
+						data, err = compress.ZstdDecompress(v.Value)
+					case "snappy":
+						data, err = compress.SnappyDecompress(v.Value)
+					default:
+						data = v.Value
+					}
+					if err != nil {
+						log.Printf("stream consumer decompress failed for offset %d: %v", v.Offset, err)
+						continue
+					}
+
+					var decodedData []byte
+					switch strings.ToLower(decode) {
+					case "base64":
+						decodedData, err = base64.StdEncoding.DecodeString(string(data))
+						if err != nil {
+							decodedData = data
+						}
+					default:
+						decodedData = data
+					}
+
+					res = append(res, map[string]any{
+						"Offset":        v.Offset,
+						"Key":           string(v.Key),
+						"Value":         string(decodedData),
+						"Timestamp":     v.Timestamp.Format(time.DateTime),
+						"Partition":     v.Partition,
+						"Topic":         v.Topic,
+						"Headers":       getHeadersString(v.Headers),
+						"LeaderEpoch":   v.LeaderEpoch,
+						"ProducerEpoch": v.ProducerEpoch,
+						"ProducerID":    v.ProducerID,
+					})
+				}
+				runtime.EventsEmit(appCtx, "consumer-msg", res)
+			}
+		}
+	}()
+
+	runtime.EventsEmit(k.appCtx, "consumer-start", map[string]any{
+		"topic": topic,
+		"group": group,
+	})
+	return result
+}
+
 func (k *Service) Close(_ context.Context) bool {
 	k.mutex.Lock()
 	defer k.mutex.Unlock()
+
+	if k.streamCancel != nil {
+		k.streamCancel()
+		k.streamCancel = nil
+	}
+	if k.streamState != nil {
+		k.streamState.Running = false
+	}
 
 	if k.client != nil {
 		k.client.Close()
@@ -377,6 +616,13 @@ func (k *Service) SetConnect(connectName string, conn map[string]any, isTest boo
 
 	if !isTest {
 		// 正式切换：先关闭所有旧资源
+		if k.streamCancel != nil {
+			k.streamCancel()
+			k.streamCancel = nil
+		}
+		if k.streamState != nil {
+			k.streamState.Running = false
+		}
 		if k.client != nil {
 			k.client.Close()
 		}

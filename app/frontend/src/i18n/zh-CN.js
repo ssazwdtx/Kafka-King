@@ -142,6 +142,14 @@ export default {
         isolationLevel: "隔离级别",
         isolationLevelReadUncommitted: "读未提交",
         isolationLevelReadCommitted: "读已提交",
+        subscribe: "订阅",
+        stop: "停止",
+        live: "实时",
+        stoppedStatus: "已停止",
+        received: "已收到:",
+        msgPerSec: "条/秒",
+        autoScroll: "自动滚底",
+        maxCache: "上限:",
     },
     group: {
         title: "消费者组",
@@ -209,6 +217,7 @@ export default {
         pleaseInput: "请输入消息内容",
         alertSent: '告警已发送',
         alertSendFailed: '告警发送失败',
+        streamStarted: "订阅已启动",
     },
     about: {
         title: "关于",

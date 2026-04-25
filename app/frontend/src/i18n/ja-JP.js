@@ -127,7 +127,15 @@ export default {
         pollTimeoutPlaceholder: "ポールタイムアウト",
         optionalGroup: "オプション：グループ（一度選択すると、消費時にオフセットが自動的にコミットされます。新しいグループの作成もサポート）",
         groupPlaceholder: "コンシューマグループを選択または作成",
-        consumeMessage: "メッセージを消費"
+        consumeMessage: "メッセージを消費",
+        subscribe: "サブスクライブ",
+        stop: "停止",
+        live: "ライブ",
+        stoppedStatus: "停止中",
+        received: "受信:",
+        msgPerSec: "件/秒",
+        autoScroll: "自動スクロール",
+        maxCache: "上限:",
     },
     group: {
         title: "コンシューマグループ",
@@ -169,7 +177,8 @@ export default {
         editOk: "編集しました、設定を更新",
         mustFill: "すべての必須フィールドを入力してください",
         saveErr: "保存失敗",
-        pleaseInput: "メッセージ内容を入力してください"
+        pleaseInput: "メッセージ内容を入力してください",
+        streamStarted: "サブスクリプション開始"
     },
     about: {
         title: "について",

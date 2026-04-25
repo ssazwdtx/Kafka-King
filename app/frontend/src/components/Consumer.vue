@@ -63,6 +63,17 @@
       </n-form-item>
 
       <n-form-item>
+        <n-button v-if="!streamRunning" :loading="streamStarting" :render-icon="renderIcon(PlayArrowOutlined)"
+          tertiary type="success" @click="startStream">
+          {{ t('consumer.subscribe') }}
+        </n-button>
+        <n-button v-else :loading="streamStopping" :render-icon="renderIcon(StopOutlined)" tertiary type="error"
+          @click="stopStream">
+          {{ t('consumer.stop') }}
+        </n-button>
+      </n-form-item>
+
+      <n-form-item>
         <n-input v-model:value="searchText" clearable placeholder="local search" style="max-width: 150px"
           @input="searchData" />
       </n-form-item>
@@ -150,18 +161,36 @@
         </n-tooltip>
       </n-form-item>
     </n-form>
+    <!-- 流式订阅状态栏 -->
+    <n-flex v-if="streamRunning || streamMsgCount > 0" align="center" :size="16" style="padding: 4px 0;">
+      <n-tag :type="streamRunning ? 'success' : 'default'" size="small" round>
+        <template #icon>
+          <span style="display:inline-block;width:8px;height:8px;border-radius:50%;"
+            :style="{ background: streamRunning ? '#18a058' : '#ccc' }" />
+        </template>
+        {{ streamRunning ? t('consumer.live') : t('consumer.stoppedStatus') }}
+      </n-tag>
+      <n-text depth="3">{{ t('consumer.received') }} {{ streamMsgCount.toLocaleString() }}</n-text>
+      <n-text v-if="streamRunning && streamRate > 0" depth="3">~{{ streamRate }} {{ t('consumer.msgPerSec') }}</n-text>
+      <n-switch v-model:value="autoScroll" size="small">
+        <template #checked>{{ t('consumer.autoScroll') }}</template>
+        <template #unchecked>{{ t('consumer.autoScroll') }}</template>
+      </n-switch>
+      <n-text depth="3" style="font-size:12px">{{ t('consumer.maxCache') }} {{ maxStreamMessages.toLocaleString() }}</n-text>
+    </n-flex>
     <!-- 消息列表 -->
     <n-data-table :bordered="true" :columns="refColumns(columns)" :data="filter_messages" :pagination="pagination"
       striped />
   </n-flex>
 </template>
 <script setup>
-import { onMounted, ref, h } from 'vue'
+import { onMounted, onUnmounted, ref, h, nextTick } from 'vue'
 import emitter from "../utils/eventBus";
 import { createCsvContent, download_file, refColumns, renderIcon, renderSelect } from "../utils/common";
-import { DriveFileMoveTwotone, MessageOutlined, ContentCopyOutlined, ExpandMoreOutlined, ExpandLessOutlined } from "@vicons/material";
-import { NButton, NDataTable, NFlex, NInput, NTooltip, NIcon, useMessage } from 'naive-ui'
-import { Consumer, GetGroups, GetTopics } from "../../wailsjs/go/service/Service";
+import { DriveFileMoveTwotone, MessageOutlined, ContentCopyOutlined, ExpandMoreOutlined, ExpandLessOutlined, PlayArrowOutlined, StopOutlined } from "@vicons/material";
+import { NButton, NDataTable, NFlex, NInput, NTooltip, NIcon, NTag, NText, NSwitch, useMessage } from 'naive-ui'
+import { Consumer, GetGroups, GetTopics, StartStreamConsumer, StopStreamConsumer, GetStreamState } from "../../wailsjs/go/service/Service";
+import { EventsOn, EventsOff } from "../../wailsjs/runtime";
 import { useI18n } from "vue-i18n";
 
 const { t } = useI18n()
@@ -196,11 +225,24 @@ const select = ref({
 
 const loading = ref(false)
 
+const streamRunning = ref(false)
+const streamStarting = ref(false)
+const streamStopping = ref(false)
+const streamMsgCount = ref(0)
+const streamRate = ref(0)
+const autoScroll = ref(true)
+const maxStreamMessages = ref(10000)
+let streamMsgTimestamps = []
+let streamEventsRegistered = false
+
 const refreshTopic = async () => {
   await getData()
 }
 
 const selectNode = async (node) => {
+  if (streamRunning.value) {
+    await stopStream()
+  }
   topic_data.value = []
   group_data.value = []
   messages = []
@@ -211,10 +253,21 @@ const selectNode = async (node) => {
   await getData()
 }
 
-onMounted(() => {
+onMounted(async () => {
   emitter.on('selectNode', selectNode)
   emitter.on('refreshTopic', refreshTopic)
   getData()
+  await registerStreamEvents()
+})
+
+onUnmounted(() => {
+  if (streamRunning.value) {
+    StopStreamConsumer()
+  }
+  EventsOff("consumer-msg")
+  EventsOff("consumer-err")
+  EventsOff("consumer-start")
+  EventsOff("consumer-end")
 })
 
 
@@ -409,6 +462,96 @@ const consume = async () => {
     message.error(e.message, { duration: 5000 })
   } finally {
     loading.value = false
+  }
+}
+
+function registerStreamEvents() {
+  if (streamEventsRegistered) return
+  streamEventsRegistered = true
+
+  EventsOn("consumer-msg", (batch) => {
+    if (!batch || batch.length === 0) return
+    messages.push(...batch)
+    const now = Date.now()
+    streamMsgTimestamps.push({ time: now, count: batch.length })
+    streamMsgTimestamps = streamMsgTimestamps.filter(e => e.time > now - 5000)
+    const totalInWindow = streamMsgTimestamps.reduce((sum, e) => sum + e.count, 0)
+    streamRate.value = Math.round(totalInWindow / 5)
+    streamMsgCount.value = messages.length
+
+    if (messages.length > maxStreamMessages.value) {
+      messages = messages.slice(messages.length - maxStreamMessages.value)
+      streamMsgCount.value = messages.length
+    }
+    searchData()
+    if (autoScroll.value) {
+      nextTick(() => {
+        const tableBody = document.querySelector('.n-data-table .n-scrollbar-content')
+        if (tableBody) {
+          tableBody.parentElement.scrollTop = tableBody.parentElement.scrollHeight
+        }
+      })
+    }
+  })
+
+  EventsOn("consumer-err", (errMsg) => {
+    message.warning(String(errMsg), { duration: 5000 })
+  })
+
+  EventsOn("consumer-start", () => {
+    streamRunning.value = true
+    streamStarting.value = false
+    message.success(t('message.streamStarted'))
+  })
+
+  EventsOn("consumer-end", () => {
+    streamRunning.value = false
+    streamStopping.value = false
+    streamRate.value = 0
+    streamMsgTimestamps = []
+  })
+}
+
+async function startStream() {
+  if (!select.value.selectedTopic) {
+    message.error(t('message.selectTopic'), { duration: 5000 })
+    return
+  }
+  if (!select.value.selectedGroup) {
+    message.error("Group is needed", { duration: 5000 })
+    return
+  }
+  streamStarting.value = true
+  messages = []
+  filter_messages.value = []
+  streamMsgCount.value = 0
+  streamMsgTimestamps = []
+
+  try {
+    const result = await StartStreamConsumer(
+      select.value.selectedTopic, select.value.selectedGroup,
+      select.value.maxMessages, select.value.timeout, select.value.decompress,
+      select.value.isolationLevel,
+      select.value.isCommit, select.value.isLatest,
+      select.value.startTimestamp || 0, select.value.decode)
+
+    if (result.err !== "") {
+      message.error(result.err, { duration: 5000 })
+      streamStarting.value = false
+    }
+  } catch (e) {
+    message.error(e.message, { duration: 5000 })
+    streamStarting.value = false
+  }
+}
+
+async function stopStream() {
+  streamStopping.value = true
+  try {
+    await StopStreamConsumer()
+  } catch (e) {
+    message.error(e.message, { duration: 5000 })
+    streamStopping.value = false
   }
 }
 

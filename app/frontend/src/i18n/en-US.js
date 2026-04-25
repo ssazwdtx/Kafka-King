@@ -142,6 +142,14 @@ export default {
         isolationLevel: "Isolation Level",
         isolationLevelReadUncommitted: "read_uncommitted",
         isolationLevelReadCommitted: "read_committed",
+        subscribe: "Subscribe",
+        stop: "Stop",
+        live: "Live",
+        stoppedStatus: "Stopped",
+        received: "Received:",
+        msgPerSec: "msg/s",
+        autoScroll: "Auto-scroll",
+        maxCache: "Max:",
     },
     group: {
         title: "Consumer Group",
@@ -194,7 +202,8 @@ export default {
         editOk: "Edited successfully, refreshing configuration",
         mustFill: "Please fill in all required fields",
         saveErr: "Failed to save",
-        pleaseInput: "Please enter message content"
+        pleaseInput: "Please enter message content",
+        streamStarted: "Subscription started"
     },
     about: {
         title: "About",

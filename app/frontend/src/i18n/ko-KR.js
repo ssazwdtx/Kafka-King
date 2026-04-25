@@ -129,7 +129,15 @@ export default {
         groupPlaceholder: "컨슈머 그룹 선택 또는 생성",
         commitOffsetTooltip: "소비 후 오프셋 제출 여부",
         firstConsumeTip: "첫 번째 소비는 오프셋을 밸런싱하는 데 시간이 걸릴 수 있습니다",
-        consumeMessage: "메시지 소비"
+        consumeMessage: "메시지 소비",
+        subscribe: "구독",
+        stop: "중지",
+        live: "실시간",
+        stoppedStatus: "중지됨",
+        received: "수신:",
+        msgPerSec: "건/초",
+        autoScroll: "자동 스크롤",
+        maxCache: "최대:",
     },
     group: {
         title: "컨슈머 그룹",
@@ -172,6 +180,7 @@ export default {
         mustFill: "모든 필수 필드를 채워주세요",
         saveErr: "저장 실패",
         pleaseInput: "메시지 내용을 입력해 주세요",
+        streamStarted: "구독 시작됨"
     },
     about: {
         title: "정보",

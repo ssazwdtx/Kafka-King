@@ -77,6 +77,7 @@ func main() {
 			app.Start(ctx)
 			appConfig.Start(ctx)
 			update.Start(ctx)
+			kafkaService.Start(ctx)
 		},
 		//在前端加载完毕 index.html 及其资源后调用此回调
 		OnDomReady: app.DomReady,
