@@ -1402,7 +1402,10 @@ func (k *Service) GetAcls() *types.ResultsResp {
 	ctx := context.Background()
 
 	// 创建 ACL 查询构建器以查询所有 ACL
-	aclBuilder := kadm.NewACLs()
+	aclBuilder := kadm.NewACLs().
+		AnyResource().
+		Operations().
+		ResourcePatternType(kadm.ACLPatternAny)
 
 	acls, err := k.kac.DescribeACLs(ctx, aclBuilder)
 	if err != nil {
