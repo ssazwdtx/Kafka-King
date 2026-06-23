@@ -19,4 +19,13 @@
 import mitt from 'mitt'
 
 const emitter = mitt()
+
+// 全局当前连接名，所有组件通过此共享
+let _currentConnectName = ''
+export function setConnectName(name) {
+  console.log('[setConnectName]', name)
+  _currentConnectName = name
+}
+export function getConnectName() { return _currentConnectName }
+
 export default emitter

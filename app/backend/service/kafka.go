@@ -29,7 +29,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"log"
 	"net"
 	"os"
@@ -364,33 +363,13 @@ func (k *Service) Close(_ context.Context) bool {
 // SSH 隧道配置
 type sshTunnel struct {
 	client    *ssh.Client
-	localAddr string
-}
-
-func pipe(src, dst net.Conn) {
-	defer func(src net.Conn) {
-		_ = src.Close()
-	}(src)
-	defer func(dst net.Conn) {
-		_ = dst.Close()
-	}(dst)
-	var wg sync.WaitGroup
-	wg.Add(2)
-	go func() {
-		defer wg.Done()
-		_, _ = io.Copy(dst, src)
-	}()
-	go func() {
-		defer wg.Done()
-		_, _ = io.Copy(src, dst)
-	}()
-	wg.Wait()
+	dialFunc  func(ctx context.Context, network, addr string) (net.Conn, error)
 }
 
 // setupSSHTunnel 建立 SSH 隧道
-// WARNING: 此实现存在根本性缺陷！它只将流量转发到 bootstrap server 列表中的第一个服务器。
-// Kafka 客户端连接后会获取整个集群的元数据并尝试连接其他 broker，这些连接会失败。
-// 正确的实现方式是使用 SOCKS5 代理，并通过 kgo.Dialer 配置客户端通过该代理进行所有连接。
+// 返回 SSH 客户端和一个 Dial 函数，该函数通过 SSH 隧道连接到任意目标地址。
+// 配合 kgo.Dialer 使用，可使所有 Kafka broker 连接（包括元数据发现的新 broker）
+// 都通过跳板机路由，解决仅第一个 bootstrap server 走隧道的问题。
 func (k *Service) setupSSHTunnel(conn map[string]any) (*sshTunnel, error) {
 	useSSH, ok := conn["use_ssh"].(string)
 	if !ok || useSSH != "enable" {
@@ -446,56 +425,14 @@ func (k *Service) setupSSHTunnel(conn map[string]any) (*sshTunnel, error) {
 		return nil, fmt.Errorf("failed to dial SSH server: %v", err)
 	}
 
-	// 获取 bootstrap servers 地址
-	bootstrapServersStr, ok := conn["bootstrap_servers"].(string)
-	if !ok || bootstrapServersStr == "" {
-		_ = sshClient.Close()
-		return nil, errors.New("bootstrap_servers is required for SSH tunnel setup")
+	// 通过 SSH 隧道 Dial 任意目标地址
+	dialFunc := func(ctx context.Context, network, addr string) (net.Conn, error) {
+		return sshClient.Dial(network, addr)
 	}
-	bootstrapServers := strings.Split(bootstrapServersStr, ",")
-	if len(bootstrapServers) == 0 {
-		_ = sshClient.Close()
-		return nil, errors.New("at least one bootstrap server is required")
-	}
-	remoteAddr := bootstrapServers[0]
-
-	// 创建本地监听端口
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		_ = sshClient.Close()
-		return nil, fmt.Errorf("failed to create local listener: %v", err)
-	}
-
-	localAddr := listener.Addr().String()
-
-	// 启动隧道
-	go func() {
-		defer func(listener net.Listener) {
-			_ = listener.Close()
-		}(listener)
-		for {
-			localConn, err := listener.Accept()
-			if err != nil {
-				if !errors.Is(err, net.ErrClosed) {
-					log.Printf("SSH tunnel listener accept error: %v", err)
-				}
-				return
-			}
-			go func() {
-				remoteConn, err := sshClient.Dial("tcp", remoteAddr)
-				if err != nil {
-					log.Printf("SSH tunnel remote dial error: %v", err)
-					_ = localConn.Close()
-					return
-				}
-				pipe(localConn, remoteConn)
-			}()
-		}
-	}()
 
 	return &sshTunnel{
-		client:    sshClient,
-		localAddr: localAddr,
+		client:   sshClient,
+		dialFunc: dialFunc,
 	}, nil
 }
 
@@ -520,7 +457,9 @@ func (k *Service) SetConnect(connectName string, conn map[string]any, isTest boo
 		return result
 	}
 	if sshTunnel != nil {
-		connCopy["bootstrap_servers"] = sshTunnel.localAddr
+		// 使用 kgo.Dialer 将所有 Kafka broker 连接路由到 SSH 隧道，
+		// 包括元数据发现的其他 broker，不再需要替换 bootstrap_servers
+		config = append(config, kgo.Dialer(sshTunnel.dialFunc))
 	}
 
 	// TLS配置

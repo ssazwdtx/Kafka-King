@@ -192,8 +192,8 @@
   </n-flex>
 </template>
 <script setup>
-import { onMounted, onUnmounted, ref, shallowRef, h, nextTick, watch } from 'vue'
-import emitter from "../utils/eventBus";
+import { onMounted, onUnmounted, ref, shallowRef, h, nextTick, watch, onActivated } from 'vue'
+import emitter, { setConnectName, getConnectName } from "../utils/eventBus";
 import { createCsvContent, download_file, refColumns, renderIcon, renderSelect } from "../utils/common";
 import { DriveFileMoveTwotone, MessageOutlined, ContentCopyOutlined, ExpandMoreOutlined, ExpandLessOutlined, PlayArrowOutlined, StopOutlined } from "@vicons/material";
 import { NButton, NDataTable, NFlex, NInput, NTooltip, NIcon, NTag, NText, NSwitch, useMessage } from 'naive-ui'
@@ -289,6 +289,7 @@ const selectNode = async (node) => {
     await stopStream()
   }
   currentConnectName = node?.name || ''
+  setConnectName(currentConnectName)
   topic_data.value = []
   group_data.value = []
   messages = []
@@ -313,6 +314,9 @@ watch(() => select.value, (val) => {
     }
     localStorage.setItem(CACHE_PARAMS_KEY + currentConnectName, JSON.stringify(cache))
   }
+  if (currentConnectName && val.selectedTopic) {
+    localStorage.setItem('kafkaKing:consumer:topic:' + currentConnectName, val.selectedTopic)
+  }
 }, { deep: true })
 
 onMounted(async () => {
@@ -320,6 +324,20 @@ onMounted(async () => {
   emitter.on('refreshTopic', refreshTopic)
   getData()
   await registerStreamEvents()
+})
+
+// keep-alive 缓存激活时从 localStorage 恢复 topic
+onActivated(() => {
+  const connectName = currentConnectName || getConnectName()
+  console.log('[Consumer] onActivated, connectName:', connectName, 'selected:', select.value.selectedTopic)
+  if (connectName) {
+    const cached = localStorage.getItem('kafkaKing:consumer:topic:' + connectName)
+    console.log('[Consumer] cached topic:', cached)
+    if (cached) {
+      console.log('[Consumer] restoring topic:', cached)
+      select.value.selectedTopic = cached
+    }
+  }
 })
 
 onUnmounted(() => {
@@ -351,6 +369,13 @@ const getData = async () => {
         }
       }
       topic_data.value = topic_data_lst
+      // 从缓存恢复上次选的 topic
+      if (currentConnectName && !select.value.selectedTopic) {
+        const cached = localStorage.getItem('kafkaKing:consumer:topic:' + currentConnectName)
+        if (cached) {
+          select.value.selectedTopic = cached
+        }
+      }
     }
     const res2 = await GetGroups()
     if (res2.err !== "") {

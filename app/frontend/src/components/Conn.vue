@@ -248,7 +248,7 @@ import {computed, onMounted, ref} from 'vue'
 import {NButton, useMessage} from 'naive-ui'
 import {renderIcon} from "../utils/common";
 import {AddFilled, CloseFilled} from "@vicons/material";
-import emitter from "../utils/eventBus";
+import emitter, { setConnectName } from "../utils/eventBus";
 import {SetConnect, TestClient} from "../../wailsjs/go/service/Service";
 import {GetConfig, OpenFileDialog, SaveConfig} from "../../wailsjs/go/config/AppConfig";
 import {useI18n} from 'vue-i18n'
@@ -439,6 +439,7 @@ const selectNode = async (node) => {
       message.error(t('message.connectErr') + "：" + res.err, {duration:  5000})
     } else {
       emitter.emit('menu_select', "node")
+      setConnectName(node.name)
       emitter.emit('selectNode', node)
       message.success(t('message.connectSuccess'))
     }

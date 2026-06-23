@@ -98,8 +98,8 @@
 </template>
 <script setup>
 
-import {onMounted, ref} from 'vue'
-import emitter from "../utils/eventBus";
+import {onMounted, ref, watch, onActivated} from 'vue'
+import emitter, { setConnectName, getConnectName } from "../utils/eventBus";
 import {NButton, useMessage} from "naive-ui";
 import {renderIcon, renderSelect} from "../utils/common";
 import {SendTwotone} from "@vicons/material";
@@ -119,12 +119,15 @@ const nums = ref(1)
 const partition = ref(0)
 const loading = ref(false)
 const compress = ref()
+let currentConnectName = ''
 
 const refreshTopic = async () => {
   await getData()
 }
 
 const selectNode = async (node) => {
+  currentConnectName = node?.name || ''
+  setConnectName(currentConnectName)
   data.value = []
   selectedTopic.value = null
   loading.value = false
@@ -133,10 +136,32 @@ const selectNode = async (node) => {
 }
 
 onMounted(() => {
+  console.log('[Producer] onMounted')
   emitter.on('selectNode', selectNode)
   emitter.on('refreshTopic', refreshTopic)
 
   getData()
+})
+
+// topic 变更时缓存到 localStorage
+watch(selectedTopic, (topic) => {
+  if (currentConnectName && topic) {
+    localStorage.setItem('kafkaKing:producer:topic:' + currentConnectName, topic)
+  }
+})
+
+// keep-alive 缓存激活时从 localStorage 恢复 topic
+onActivated(() => {
+  const connectName = currentConnectName || getConnectName()
+  console.log('[Producer] onActivated, connectName:', connectName, 'selected:', selectedTopic.value)
+  if (connectName) {
+    const cached = localStorage.getItem('kafkaKing:producer:topic:' + connectName)
+    console.log('[Producer] cached topic:', cached)
+    if (cached) {
+      console.log('[Producer] restoring topic:', cached)
+      selectedTopic.value = cached
+    }
+  }
 })
 
 // 读取topic及分区信息
@@ -158,6 +183,13 @@ const getData = async () => {
         }
       }
       data.value = data_lst
+      // 从缓存恢复上次选的 topic
+      if (currentConnectName && !selectedTopic.value) {
+        const cached = localStorage.getItem('kafkaKing:producer:topic:' + currentConnectName)
+        if (cached) {
+          selectedTopic.value = cached
+        }
+      }
     }
   } catch (e) {
     message.error(e.message, {duration:  5000})

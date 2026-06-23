@@ -219,7 +219,7 @@
 </template>
 <script setup>
 import {h, onMounted, ref} from "vue";
-import emitter from "../utils/eventBus";
+import emitter, { setConnectName, getConnectName } from "../utils/eventBus";
 import {NButton, NDataTable, NDropdown, NIcon, NInput, NTag, NText, useDialog, useMessage} from 'naive-ui'
 import {
   AddFilled,
@@ -266,6 +266,7 @@ const activeTab = ref('Topic');
 const selectedGroup = ref();
 const loading = ref(false)
 const data = ref([])
+let currentConnectName = ''
 const topic_add = ref({
   topics: [],
   partitions: 1,
@@ -287,6 +288,8 @@ const showModal = ref(false)
 const addPartitionNum = ref(1)
 
 const selectNode = async (node) => {
+  currentConnectName = node?.name || ''
+  setConnectName(currentConnectName)
   config_data.value = []
   partitions_data.value = []
   group_data.value = []
@@ -632,11 +635,21 @@ const getTopicDetail = async (topic) => {
 
 // 页面跳转，第二个参数是菜单key
 const viewProduce = async (row) => {
+  const cn = currentConnectName || getConnectName()
+  console.log('[Topics] write producer topic:', row.topic, 'connect:', cn)
+  if (cn) {
+    localStorage.setItem('kafkaKing:producer:topic:' + cn, row.topic)
+  }
   emitter.emit('menu_select', "producer")
 }
 
 // 页面跳转，第二个参数是菜单key
 const viewConsumer = async (row) => {
+  const cn = currentConnectName || getConnectName()
+  console.log('[Topics] write consumer topic:', row.topic, 'connect:', cn)
+  if (cn) {
+    localStorage.setItem('kafkaKing:consumer:topic:' + cn, row.topic)
+  }
   emitter.emit('menu_select', "consumer")
 }
 

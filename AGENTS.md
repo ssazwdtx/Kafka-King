@@ -64,7 +64,6 @@ repo-root/
 - Config is persisted as YAML at `~/.kafka-king/config.yaml`. The `Config.Connects` field stores saved cluster connections (including passwords in plain text — never commit config.yaml).
 - The `consumer` cache on `Service` stores `[group, topic, isolationLevel, *kgo.Client]` — the client pointer is at **index 3**, not index 2.
 - The frontend uses a `mitt` event bus (`emitter`) for cross-component communication (theme change, menu select, language change).
-- SSH tunnel implementation has a known limitation: it only tunnels to the first bootstrap server. Kafka clients that discover other brokers via metadata will fail to connect to those. Only the initial bootstrap connection goes through the tunnel.
 
 ## Testing
 
