@@ -150,6 +150,7 @@ export default {
         msgPerSec: "条/秒",
         autoScroll: "自动滚底",
         maxCache: "上限:",
+        cacheTooltip: "数量上限 {count} 条 | 内存上限 {size}",
     },
     group: {
         title: "消费者组",

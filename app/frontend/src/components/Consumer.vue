@@ -115,7 +115,7 @@
 
       <n-form-item label="Decode" path="decode">
         <n-select v-model:value="select.decode" :options="[
-          { label: 'None', value: '' },
+          { label: 'utf8', value: 'utf8' },
           { label: 'Base64', value: 'base64' },
         ]" clearable filterable style="width: 100px" />
       </n-form-item>
@@ -170,13 +170,21 @@
         </template>
         {{ streamRunning ? t('consumer.live') : t('consumer.stoppedStatus') }}
       </n-tag>
-      <n-text depth="3">{{ t('consumer.received') }} {{ streamMsgCount.toLocaleString() }}</n-text>
+      <n-text depth="3">
+        {{ t('consumer.received') }}
+        <n-text depth="3" style="font-weight: bold">{{ totalReceived.toLocaleString() }}</n-text>
+        <n-tooltip trigger="hover" style="font-size:12px">
+          <template #trigger>
+            <n-text depth="3" style="font-size:12px">({{ t('consumer.maxCache') }} {{ streamMsgCount.toLocaleString() }})</n-text>
+          </template>
+          {{ t('consumer.cacheTooltip', { count: maxStreamMessages.toLocaleString(), size: formatSize(MAX_MESSAGES_SIZE) }) }}
+        </n-tooltip>
+      </n-text>
       <n-text v-if="streamRunning && streamRate > 0" depth="3">~{{ streamRate }} {{ t('consumer.msgPerSec') }}</n-text>
       <n-switch v-model:value="autoScroll" size="small">
         <template #checked>{{ t('consumer.autoScroll') }}</template>
         <template #unchecked>{{ t('consumer.autoScroll') }}</template>
       </n-switch>
-      <n-text depth="3" style="font-size:12px">{{ t('consumer.maxCache') }} {{ maxStreamMessages.toLocaleString() }}</n-text>
     </n-flex>
     <!-- 消息列表 -->
     <n-data-table :bordered="true" :columns="refColumns(columns)" :data="filter_messages" :pagination="pagination"
@@ -184,7 +192,7 @@
   </n-flex>
 </template>
 <script setup>
-import { onMounted, onUnmounted, ref, h, nextTick } from 'vue'
+import { onMounted, onUnmounted, ref, shallowRef, h, nextTick, watch } from 'vue'
 import emitter from "../utils/eventBus";
 import { createCsvContent, download_file, refColumns, renderIcon, renderSelect } from "../utils/common";
 import { DriveFileMoveTwotone, MessageOutlined, ContentCopyOutlined, ExpandMoreOutlined, ExpandLessOutlined, PlayArrowOutlined, StopOutlined } from "@vicons/material";
@@ -200,7 +208,7 @@ const message = useMessage()
 const topic_data = ref([]);
 const group_data = ref([]);
 let messages = []
-const filter_messages = ref([])
+const filter_messages = shallowRef([])
 const searchText = ref(null)
 
 // 新增状态变量，用于跟踪是否是首次消费
@@ -213,12 +221,12 @@ const advancedOptionsCollapsed = ref(true)
 const select = ref({
   selectedTopic: null,
   selectedGroup: "__kafka_king_auto_generate__",
-  maxMessages: 10,
-  timeout: 10,
+  maxMessages: 100,
+  timeout: 5,
   isCommit: false,
   isLatest: false,
   decompress: null,
-  decode: "", // 默认为空，表示不进行额外解码
+  decode: "utf8", // 默认按 utf8 解码
   startTimestamp: null,
   isolationLevel: "read_uncommitted", // 默认为read_uncommitted
 })
@@ -229,11 +237,48 @@ const streamRunning = ref(false)
 const streamStarting = ref(false)
 const streamStopping = ref(false)
 const streamMsgCount = ref(0)
+const totalReceived = ref(0)
 const streamRate = ref(0)
 const autoScroll = ref(true)
 const maxStreamMessages = ref(10000)
 let streamMsgTimestamps = []
 let streamEventsRegistered = false
+let renderScheduled = false
+let currentConnectName = ''
+
+// 内存保护：最大缓存 200MB，基于估算的消息大小
+const MAX_MESSAGES_SIZE = 200 * 1024 * 1024
+let totalMessagesSize = 0
+
+const estimateMsgSize = (msg) => {
+  let size = 0
+  if (msg.Value) size += msg.Value.length * 2 // UTF-16 实际内存
+  if (msg.Key) size += msg.Key.length * 2
+  return size + 400 // 消息对象固定开销
+}
+
+const formatSize = (bytes) => {
+  if (!bytes) return '0 B'
+  const units = ['B', 'KB', 'MB', 'GB']
+  const i = Math.min(units.length - 1, Math.floor(Math.log(bytes) / Math.log(1024)))
+  return (bytes / Math.pow(1024, i)).toFixed(0) + ' ' + units[i]
+}
+
+const scheduleRender = () => {
+  renderScheduled = true
+  requestAnimationFrame(() => {
+    renderScheduled = false
+    searchData()
+    if (autoScroll.value) {
+      nextTick(() => {
+        const tableBody = document.querySelector('.n-data-table .n-scrollbar-content')
+        if (tableBody) {
+          tableBody.parentElement.scrollTop = tableBody.parentElement.scrollHeight
+        }
+      })
+    }
+  })
+}
 
 const refreshTopic = async () => {
   await getData()
@@ -243,15 +288,32 @@ const selectNode = async (node) => {
   if (streamRunning.value) {
     await stopStream()
   }
+  currentConnectName = node?.name || ''
   topic_data.value = []
   group_data.value = []
   messages = []
   filter_messages.value = []
+  totalMessagesSize = 0
+  totalReceived.value = 0
+  streamMsgCount.value = 0
   select.value.selectedTopic = null
   select.value.selectedGroup = null
   loading.value = false
   await getData()
 }
+
+// 消费参数变更时持久化到 localStorage
+const CACHE_PARAMS_KEY = 'kafkaKing:consumer:params:'
+watch(() => select.value, (val) => {
+  if (currentConnectName && val.selectedGroup) {
+    const cache = {
+      selectedGroup: val.selectedGroup,
+      maxMessages: val.maxMessages,
+      timeout: val.timeout,
+    }
+    localStorage.setItem(CACHE_PARAMS_KEY + currentConnectName, JSON.stringify(cache))
+  }
+}, { deep: true })
 
 onMounted(async () => {
   emitter.on('selectNode', selectNode)
@@ -310,6 +372,25 @@ const getData = async () => {
       }
       groups.sort((a, b) => a['label'] > b['label'] ? 1 : -1)
       group_data.value = groups
+
+      // 恢复上次的消费参数（消费组、数量、超时）
+      if (currentConnectName) {
+        const cached = localStorage.getItem(CACHE_PARAMS_KEY + currentConnectName)
+        if (cached) {
+          try {
+            const params = JSON.parse(cached)
+            if (params.selectedGroup && groups.some(g => g.value === params.selectedGroup)) {
+              select.value.selectedGroup = params.selectedGroup
+            }
+            if (typeof params.maxMessages === 'number') {
+              select.value.maxMessages = params.maxMessages
+            }
+            if (typeof params.timeout === 'number') {
+              select.value.timeout = params.timeout
+            }
+          } catch (_) {}
+        }
+      }
     }
   } catch (e) {
     message.error(e.message, { duration: 5000 })
@@ -455,6 +536,11 @@ const consume = async () => {
       message.error(result.err, { duration: 5000 })
     } else {
       messages = result.results
+      // 手动消费后重新计算缓存大小
+      totalMessagesSize = 0
+      for (const msg of messages) {
+        totalMessagesSize += estimateMsgSize(msg)
+      }
       searchData()
       message.success(t('message.fetchSuccess'))
     }
@@ -472,6 +558,13 @@ function registerStreamEvents() {
   EventsOn("consumer-msg", (batch) => {
     if (!batch || batch.length === 0) return
     messages.push(...batch)
+    totalReceived.value += batch.length
+
+    // 累计新消息的估算内存大小
+    for (const msg of batch) {
+      totalMessagesSize += estimateMsgSize(msg)
+    }
+
     const now = Date.now()
     streamMsgTimestamps.push({ time: now, count: batch.length })
     streamMsgTimestamps = streamMsgTimestamps.filter(e => e.time > now - 5000)
@@ -479,19 +572,30 @@ function registerStreamEvents() {
     streamRate.value = Math.round(totalInWindow / 5)
     streamMsgCount.value = messages.length
 
+    // 数量上限（控制表格行数）
     if (messages.length > maxStreamMessages.value) {
-      messages = messages.slice(messages.length - maxStreamMessages.value)
+      const excess = messages.length - maxStreamMessages.value
+      for (let i = 0; i < excess; i++) {
+        totalMessagesSize -= estimateMsgSize(messages[i])
+      }
+      messages.splice(0, excess)
       streamMsgCount.value = messages.length
     }
-    searchData()
-    if (autoScroll.value) {
-      nextTick(() => {
-        const tableBody = document.querySelector('.n-data-table .n-scrollbar-content')
-        if (tableBody) {
-          tableBody.parentElement.scrollTop = tableBody.parentElement.scrollHeight
-        }
-      })
+
+    // 内存大小上限（防止大消息撑爆）
+    if (totalMessagesSize > MAX_MESSAGES_SIZE) {
+      let removeCount = 0
+      while (removeCount < messages.length && totalMessagesSize > MAX_MESSAGES_SIZE) {
+        totalMessagesSize -= estimateMsgSize(messages[removeCount])
+        removeCount++
+      }
+      if (removeCount > 0) {
+        messages.splice(0, removeCount)
+        streamMsgCount.value = messages.length
+      }
     }
+
+    scheduleRender()
   })
 
   EventsOn("consumer-err", (errMsg) => {
@@ -525,6 +629,8 @@ async function startStream() {
   messages = []
   filter_messages.value = []
   streamMsgCount.value = 0
+  totalReceived.value = 0
+  totalMessagesSize = 0
   streamMsgTimestamps = []
 
   try {
@@ -581,11 +687,21 @@ const saveMessageAsBinary = (message) => {
   // saveAs(blob, `message-${message.offset}.bin`)
 }
 
+// 流式显示窗口大小：自动滚底时只取最新 N 条，避免全量复制
+const STREAM_WINDOW = 10000
+
 const searchData = () => {
   if (searchText.value) {
     filter_messages.value = messages.filter(message => message.Value.includes(searchText.value))
   } else {
-    filter_messages.value = messages
+    // 自动滚底时只窗口化最新消息，大幅减少数组复制和 table 渲染
+    if (streamRunning.value && autoScroll.value && messages.length > STREAM_WINDOW) {
+      const windowed = messages.slice(messages.length - STREAM_WINDOW)
+      windowed.reverse()
+      filter_messages.value = windowed
+    } else {
+      filter_messages.value = messages.slice().reverse()
+    }
   }
 }
 

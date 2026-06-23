@@ -138,6 +138,7 @@ export default {
         msgPerSec: "сообщ/с",
         autoScroll: "Автопрокрутка",
         maxCache: "Макс:",
+        cacheTooltip: "Макс. количество: {count} | Макс. память: {size}",
     },
     group: {
         title: "Группа потребителей",

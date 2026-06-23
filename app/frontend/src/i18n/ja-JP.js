@@ -136,6 +136,7 @@ export default {
         msgPerSec: "件/秒",
         autoScroll: "自動スクロール",
         maxCache: "上限:",
+        cacheTooltip: "件数上限 {count} 件 | メモリ上限 {size}",
     },
     group: {
         title: "コンシューマグループ",

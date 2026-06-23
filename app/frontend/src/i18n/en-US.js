@@ -150,6 +150,7 @@ export default {
         msgPerSec: "msg/s",
         autoScroll: "Auto-scroll",
         maxCache: "Max:",
+        cacheTooltip: "Count max: {count} | Memory max: {size}",
     },
     group: {
         title: "Consumer Group",

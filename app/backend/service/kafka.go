@@ -145,6 +145,12 @@ func (k *Service) StopStreamConsumer() *types.ResultResp {
 func (k *Service) StartStreamConsumer(topic string, group string, num int, timeout int, decompress string, isolationLevel string, isCommit bool, isLatest bool, startTimestamp int, decode string) *types.ResultResp {
 	result := &types.ResultResp{}
 
+	// 流式消费批量拉取，减少 IPC 批次数；至少取 10000 条
+	const streamBatchSize = 10000
+	if num < streamBatchSize {
+		num = streamBatchSize
+	}
+
 	if k.kac == nil {
 		result.Err = common.PleaseSelectErr
 		return result
@@ -246,7 +252,16 @@ func (k *Service) StartStreamConsumer(topic string, group string, num int, timeo
 			}
 
 			if errs := fetches.Errors(); len(errs) > 0 {
-				runtime.EventsEmit(appCtx, "consumer-err", fmt.Sprint(errs))
+				filtered := make([]string, 0, len(errs))
+				for _, e := range errs {
+					if errors.Is(e.Err, context.DeadlineExceeded) || errors.Is(e.Err, context.Canceled) {
+						continue
+					}
+					filtered = append(filtered, e.Err.Error())
+				}
+				if len(filtered) > 0 {
+					runtime.EventsEmit(appCtx, "consumer-err", strings.Join(filtered, "; "))
+				}
 			}
 
 			records := fetches.Records()

@@ -138,6 +138,7 @@ export default {
         msgPerSec: "건/초",
         autoScroll: "자동 스크롤",
         maxCache: "최대:",
+        cacheTooltip: "최대 개수: {count}개 | 최대 메모리: {size}",
     },
     group: {
         title: "컨슈머 그룹",
