@@ -14,6 +14,9 @@
 <h3 align="center">Современный и практичный графический интерфейсный (GUI) клиент для Kafka </h3>
 
 </div>
+<h4 align="center">
+<a href="../../readme.md">English</a> | <a href="../../README-CN.md">简体中文</a> | <a href="readme-ja.md">日本語</a> | <a href="readme-ru.md">рускі</a> | <a href="readme-ko.md">한국인</a> | <a href="readme-es.md">Español</a> | <a href="readme-fr.md">Français</a> | <a href="readme-de.md">Deutsch</a> | <a href="readme-pt.md">Português</a> | <a href="readme-it.md">Italiano</a> | <a href="readme-vi.md">Tiếng Việt</a> | <a href="readme-id.md">Bahasa Indonesia</a>  
+</h4>
 
 Сделайте работу с Kafka проще, make kafka great again!
 

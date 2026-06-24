@@ -16,7 +16,7 @@
 
 </div>
 <h4 align="center">
-English | <a href="README-CN.md">简体中文</a> | <a href="docs/readme/readme-ja.md">日本語</a> |  <a href="docs/readme/readme-ru.md">рускі</a> | <a href="docs/readme/readme-ko.md">한국인</a>  
+English | <a href="README-CN.md">简体中文</a> | <a href="docs/readme/readme-ja.md">日本語</a> | <a href="docs/readme/readme-ru.md">рускі</a> | <a href="docs/readme/readme-ko.md">한국인</a> | <a href="docs/readme/readme-es.md">Español</a> | <a href="docs/readme/readme-fr.md">Français</a> | <a href="docs/readme/readme-de.md">Deutsch</a> | <a href="docs/readme/readme-pt.md">Português</a> | <a href="docs/readme/readme-it.md">Italiano</a> | <a href="docs/readme/readme-vi.md">Tiếng Việt</a> | <a href="docs/readme/readme-id.md">Bahasa Indonesia</a>  
 </h4>
 
 
