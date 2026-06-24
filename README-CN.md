@@ -44,6 +44,8 @@
 
 对于macos，“M1”、“M2”通常是ARM64架构，“Intel”是AMD64架构
 
+**macOS 用户如果遇到“已损坏”无法打开，终端执行 `xattr -dr com.apple.quarantine /Applications/Kafka-King.app` 即可（原因是 app 未签名被 Gatekeeper 拦截）。**
+
 `必看 注意事项：`
 
 > 1、**使用前请检查kafka集群配置的`advertised.listeners`，如果未配置，或配置的是域名，那么在King中填写连接地址时，请提前在本机电脑的hosts文件中添加对应域名解析，否则会因为无法解析域名而无法连接，哪怕你在king输入框里填的是ip也一样**

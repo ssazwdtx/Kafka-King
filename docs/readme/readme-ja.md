@@ -39,6 +39,8 @@ Kafkaの使い勝手を向上させる。
 # ダウンロード
 右側からダウンロードするか、[ダウンロードページ](https://github.com/Bronya0/Kafka-King/releases) を開いて 【Assets】 を展開し、自分のプラットフォーム向けのバージョンを選択してください。Windows、macOS、Linuxをサポートしています。
 
+**macOSユーザーへ：「壊れている」と表示されて開けない場合、ターミナルで `xattr -dr com.apple.quarantine /Applications/Kafka-King.app` を実行してください（アプリが署名されておらず、Gatekeeperにブロックされているため）。**
+
 `重要な注意点:`
 
 1. **使用前に、Kafkaクラスタの`advertised.listeners`設定が正しく行われていることを確認してください。未設定またはドメイン名を使用している場合、接続先のドメイン名解像度エントリをローカルマシンのhostsファイルに追加して、ドメイン名の解像度により引き起こされる接続問題を避けてください。**

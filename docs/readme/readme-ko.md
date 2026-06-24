@@ -43,6 +43,8 @@
 # 다운로드
 오른쪽에서 다운로드하거나 [다운로드 주소](https://github.com/Bronya0/Kafka-King/releases)를 클릭하여 【Assets】를 펼치고 자신의 플랫폼에 맞게 다운로드하세요. Windows, macOS, Linux를 지원합니다.
 
+**macOS 사용자: 앱이 "손상됨"으로 표시되며 열리지 않는 경우, 터미널에서 `xattr -dr com.apple.quarantine /Applications/Kafka-King.app`을 실행하세요 (앱이 서명되지 않아 Gatekeeper에 의해 차단되었기 때문입니다).**
+
 `반드시 읽어야 할 주의 사항:`
 
 > 1. **사용 전에 카프카 클러스터 구성의 `advertised.listeners`를 확인하세요. 구성되어 있지 않거나 도메인 이름으로 구성되어 있다면 King에서 연결 주소를 입력할 때, 해당 도메인 이름을 로컬 컴퓨터의 hosts 파일에 미리 추가해야 합니다. 그렇지 않으면 도메인 이름을 해석할 수 없기 때문에 연결할 수 없으며, King 입력란에 IP를 입력하더라도 마찬가지입니다.**
