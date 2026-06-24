@@ -45,6 +45,9 @@ This project is a kafka GUI client, adapted to various desktop systems (except W
 # Download
 Download from the right side or visit the [release page](https://github.com/Bronya0/Kafka-King/releases). Expand 【Assets】and choose the version suitable for your platform, supporting Windows, macOS, Linux.
 
+**macOS users: if the app shows "is damaged" when opening, run `xattr -dr com.apple.quarantine /Applications/Kafka-King.app` in terminal (the app is unsigned and blocked by Gatekeeper).**
+
+
 `Important Notes:`
 
 1. **Before using, ensure that the `advertised.listeners` setting of your Kafka cluster is correctly configured. If not configured or if domain names are used, add corresponding domain name resolution entries in the hosts file of your local machine to avoid connection issues due to unresolved domain names, even when IP addresses are entered in King.**
